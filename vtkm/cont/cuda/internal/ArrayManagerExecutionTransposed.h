@@ -17,13 +17,11 @@
 //  Laboratory (LANL), the U.S. Government retains certain rights in
 //  this software.
 //============================================================================
-#ifndef vtk_m_cont_cuda_internal_ArrayManagerExecutionThrustDevice_h
-#define vtk_m_cont_cuda_internal_ArrayManagerExecutionThrustDevice_h
+#ifndef vtk_m_cont_cuda_internal_ArrayManagerExecutionTransposed_h
+#define vtk_m_cont_cuda_internal_ArrayManagerExecutionTransposed_h
 
 #include <vtkm/cont/Storage.h>
 #include <vtkm/cont/ErrorControlOutOfMemory.h>
-
-#include <iostream>
 
 // Disable GCC warnings we check vtkmfor but Thrust does not.
 #if defined(__GNUC__) && !defined(VTKM_CUDA)
@@ -45,7 +43,8 @@
 #endif // gcc version >= 4.6
 #endif // gcc && !CUDA
 
-#include <vtkm/exec/cuda/internal/ArrayPortalFromThrust.h>
+#include <vtkm/exec/cuda/internal/ArrayPortalFromThrustTransposed.h>
+
 
 namespace vtkm {
 namespace cont {
@@ -61,21 +60,22 @@ namespace internal {
 /// This array manager should only be used with the cuda device adapter,
 /// since in the future it will take advantage of texture memory and
 /// the unique memory access patterns of cuda systems.
-template<typename T, class StorageTag>
-class ArrayManagerExecutionThrustDevice
+template<class StorageTag>
+class ArrayManagerExecutionThrustDevice< vtkm::Vec< vtkm::Float32, 3 >, StorageTag>
 {
 public:
-  typedef T ValueType;
+  typedef vtkm::Vec< vtkm::Float32, 3 > ValueType;
 
   typedef vtkm::cont::internal::Storage<ValueType, StorageTag> ContainerType;
 
-  typedef vtkm::exec::cuda::internal::ArrayPortalFromThrust< T > PortalType;
-  typedef vtkm::exec::cuda::internal::ConstArrayPortalFromThrust< const T > PortalConstType;
+  typedef vtkm::exec::cuda::internal::ArrayPortalFromThrustTransposed< ValueType > PortalType;
+  typedef vtkm::exec::cuda::internal::ConstArrayPortalFromThrustTransposed< const ValueType > PortalConstType;
 
   VTKM_CONT_EXPORT ArrayManagerExecutionThrustDevice():
-    Array()
+    ArrayX(),
+    ArrayY(),
+    ArrayZ()
   {
-
   }
 
   ~ArrayManagerExecutionThrustDevice()
@@ -86,7 +86,7 @@ public:
   /// Returns the size of the array.
   ///
   VTKM_CONT_EXPORT vtkm::Id GetNumberOfValues() const {
-    return this->Array.size();
+    return this->ArrayX.size();
   }
 
   /// Allocates the appropriate size of the array and copies the given data
@@ -100,8 +100,34 @@ public:
     //calling get portal const
     try
       {
-      this->Array.assign(arrayPortal.GetRawIterator(),
-                         arrayPortal.GetRawIterator() + arrayPortal.GetNumberOfValues());
+      const vtkm::Id length = arrayPortal.GetNumberOfValues();
+      this->ArrayX.reserve( length );
+      this->ArrayY.reserve( length );
+      this->ArrayZ.reserve( length );
+
+      cudaMemcpy2D(this->ArrayX.data().get(),
+                   sizeof(vtkm::Float32),
+                   arrayPortal.GetRawIterator(),
+                   3*sizeof(vtkm::Float32),
+                   sizeof(vtkm::Float32),
+                   length,
+                   cudaMemcpyHostToDevice);
+
+      cudaMemcpy2D(this->ArrayY.data().get(),
+                   sizeof(vtkm::Float32),
+                   arrayPortal.GetRawIterator()+1,
+                   3*sizeof(vtkm::Float32),
+                   sizeof(vtkm::Float32),
+                   length,
+                   cudaMemcpyHostToDevice);
+
+      cudaMemcpy2D(this->ArrayZ.data().get(),
+                   sizeof(vtkm::Float32),
+                   arrayPortal.GetRawIterator()+2,
+                   3*sizeof(vtkm::Float32),
+                   sizeof(vtkm::Float32),
+                   length,
+                   cudaMemcpyHostToDevice);
       }
     catch (std::bad_alloc error)
       {
@@ -126,7 +152,9 @@ public:
   {
     try
       {
-      this->Array.resize(numberOfValues);
+      this->ArrayX.resize(numberOfValues);
+      this->ArrayY.resize(numberOfValues);
+      this->ArrayZ.resize(numberOfValues);
       }
     catch (std::bad_alloc error)
       {
@@ -141,10 +169,33 @@ public:
   ///
   VTKM_CONT_EXPORT void RetrieveOutputData(ContainerType &controlArray) const
   {
-    controlArray.Allocate(this->Array.size());
-    ::thrust::copy( this->Array.data(),
-                    this->Array.data() + this->Array.size(),
-                   controlArray.GetPortal().GetRawIterator());
+    const vtkm::Id length = this->ArrayX.size();
+    controlArray.Allocate(length);
+
+
+    cudaMemcpy2D(controlArray.GetPortal().GetRawIterator(),
+                 3*sizeof(vtkm::Float32),
+                 this->ArrayX.data().get(),
+                 sizeof(vtkm::Float32),
+                 sizeof(vtkm::Float32),
+                 length,
+                 cudaMemcpyDeviceToHost);
+
+    cudaMemcpy2D(controlArray.GetPortal().GetRawIterator(),
+                 3*sizeof(vtkm::Float32),
+                 this->ArrayY.data().get(),
+                 sizeof(vtkm::Float32),
+                 sizeof(vtkm::Float32),
+                 length,
+                 cudaMemcpyDeviceToHost);
+
+    cudaMemcpy2D(controlArray.GetPortal().GetRawIterator(),
+                 3*sizeof(vtkm::Float32),
+                 this->ArrayZ.data().get(),
+                 sizeof(vtkm::Float32),
+                 sizeof(vtkm::Float32),
+                 length,
+                 cudaMemcpyDeviceToHost);
   }
 
   /// Resizes the device vector.
@@ -153,21 +204,35 @@ public:
   {
     // The operation will succeed even if this assertion fails, but this
     // is still supposed to be a precondition to Shrink.
-    VTKM_ASSERT_CONT(numberOfValues <= this->Array.size());
+    VTKM_ASSERT_CONT(numberOfValues <= this->ArrayX.size());
 
-    this->Array.resize(numberOfValues);
+    this->ArrayX.resize(numberOfValues);
+    this->ArrayY.resize(numberOfValues);
+    this->ArrayZ.resize(numberOfValues);
   }
 
   VTKM_CONT_EXPORT PortalType GetPortal()
   {
-    return PortalType( this->Array.data(),
-                       this->Array.data() + this->Array.size());
+    const std::size_t len = this->ArrayX.size();
+    return PortalType( vtkm::make_Vec(this->ArrayX.data(),
+                                      this->ArrayY.data(),
+                                      this->ArrayZ.data() ),
+                       vtkm::make_Vec(this->ArrayX.data() + len,
+                                      this->ArrayY.data() + len,
+                                      this->ArrayZ.data() + len )
+                       );
   }
 
   VTKM_CONT_EXPORT PortalConstType GetPortalConst() const
   {
-    return PortalConstType( this->Array.data(),
-                            this->Array.data() + this->Array.size());
+    const std::size_t len = this->ArrayX.size();
+    return PortalConstType( vtkm::make_Vec(this->ArrayX.data(),
+                                      this->ArrayY.data(),
+                                      this->ArrayZ.data() ),
+                            vtkm::make_Vec(this->ArrayX.data() + len,
+                                      this->ArrayY.data() + len,
+                                      this->ArrayZ.data() + len )
+                            );
   }
 
 
@@ -175,18 +240,25 @@ public:
   ///
   VTKM_CONT_EXPORT void ReleaseResources()
   {
-    this->Array.clear();
-    this->Array.shrink_to_fit();
+    this->ArrayX.clear();
+    this->ArrayY.clear();
+    this->ArrayZ.clear();
+    this->ArrayX.shrink_to_fit();
+    this->ArrayY.shrink_to_fit();
+    this->ArrayZ.shrink_to_fit();
   }
 
 private:
   // Not implemented
   ArrayManagerExecutionThrustDevice(
-      ArrayManagerExecutionThrustDevice<T, StorageTag> &);
+      ArrayManagerExecutionThrustDevice<ValueType, StorageTag> &);
   void operator=(
-      ArrayManagerExecutionThrustDevice<T, StorageTag> &);
+      ArrayManagerExecutionThrustDevice<ValueType, StorageTag> &);
 
-  ::thrust::system::cuda::vector<ValueType> Array;
+
+  ::thrust::system::cuda::vector< vtkm::Float32 > ArrayX;
+  ::thrust::system::cuda::vector< vtkm::Float32 > ArrayY;
+  ::thrust::system::cuda::vector< vtkm::Float32 > ArrayZ;
 };
 
 
@@ -194,7 +266,5 @@ private:
 }
 }
 } // namespace vtkm::cont::cuda::internal
-
-#include <vtkm/cont/cuda/internal/ArrayManagerExecutionTransposed.h>
 
 #endif // vtk_m_cont_cuda_internal_ArrayManagerExecutionThrustDevice_h
