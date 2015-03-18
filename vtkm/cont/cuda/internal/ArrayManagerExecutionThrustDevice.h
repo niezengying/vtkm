@@ -61,7 +61,7 @@ namespace internal {
 /// This array manager should only be used with the cuda device adapter,
 /// since in the future it will take advantage of texture memory and
 /// the unique memory access patterns of cuda systems.
-template<typename T, class StorageTag>
+template<typename T, class StorageTag, typename EnableSpecialization = void >
 class ArrayManagerExecutionThrustDevice
 {
 public:

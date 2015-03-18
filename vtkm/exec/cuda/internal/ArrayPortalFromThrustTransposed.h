@@ -51,6 +51,33 @@ namespace exec {
 namespace cuda {
 namespace internal {
 
+template<typename VecType>
+struct to_value_type
+{
+  typedef typename VecType::ComponentType ComponentType;
+  static const vtkm::IdComponent NUM_COMPONENTS = VecType::NUM_COMPONENTS;
+
+  template< typename IteratorVecType >
+  VTKM_EXEC_EXPORT
+  static VecType get(vtkm::Id index, const IteratorVecType& iterators)
+  {
+  VecType v;
+  #pragma unroll
+  for(int i=0; i < NUM_COMPONENTS; ++i)
+    { v[i] = load_through_texture< const ComponentType >::get( iterators[i]+index ); }
+  return v;
+  }
+
+  template< typename IteratorVecType >
+  VTKM_EXEC_EXPORT
+  static void set(vtkm::Id index, const VecType& value,  IteratorVecType& iterators)
+  {
+  #pragma unroll
+  for(int i=0; i < NUM_COMPONENTS; ++i)
+    { *(iterators[i]+index) = value[i]; }
+  }
+};
+
 
 /// This templated implementation of an ArrayPortal allows you to adapt a pair
 /// of begin/end iterators to an ArrayPortal interface.
@@ -61,16 +88,20 @@ class ArrayPortalFromThrustTransposed : public ArrayPortalFromThrustBase
 public:
   typedef T ValueType;
   typedef typename T::ComponentType ComponentType;
+  static const vtkm::IdComponent NUM_COMPONENTS = ValueType::NUM_COMPONENTS;
+
   typedef typename thrust::system::cuda::pointer< ComponentType > PointerType;
-  typedef T* IteratorType;
+
+  //none pointer type so that we use the lookup functor based wrapper
+  typedef T IteratorType;
 
   VTKM_EXEC_CONT_EXPORT ArrayPortalFromThrustTransposed() {  }
 
   VTKM_CONT_EXPORT
-  ArrayPortalFromThrustTransposed(vtkm::Vec<PointerType,3> begin,
-                                  vtkm::Vec<PointerType,3> end)
+  ArrayPortalFromThrustTransposed(vtkm::Vec<PointerType,NUM_COMPONENTS> begin,
+                                  vtkm::Id length)
     : BeginIterators( begin ),
-      EndIterators( end  )
+      NumberOfValues( length  )
       {  }
 
   /// Copy constructor for any other ArrayPortalFromThrustTransposed with an iterator
@@ -81,7 +112,7 @@ public:
   VTKM_EXEC_CONT_EXPORT
   ArrayPortalFromThrustTransposed(const ArrayPortalFromThrustTransposed<OtherT> &src)
     : BeginIterators(src.BeginIterators),
-      EndIterators(src.EndIterators)
+      NumberOfValues(src.NumberOfValues)
   {  }
 
   template<typename OtherT>
@@ -90,45 +121,28 @@ public:
       const ArrayPortalFromThrustTransposed<OtherT> &src)
   {
     this->BeginIterators = src.BeginIterators;
-    this->EndIterators = src.EndIterators;
+    this->NumberOfValues = src.NumberOfValues;
     return *this;
   }
 
   VTKM_EXEC_CONT_EXPORT
   vtkm::Id GetNumberOfValues() const {
-    // Not using std::distance because on CUDA it cannot be used on a device.
-    return (this->EndIterators[0] - this->BeginIterators[0]);
+    return NumberOfValues;
   }
 
   VTKM_EXEC_EXPORT
   ValueType Get(vtkm::Id index) const {
-    return ValueType( *(this->BeginIterators[0]+index),
-                      *(this->BeginIterators[1]+index),
-                      *(this->BeginIterators[2]+index) );
+    return vtkm::exec::cuda::internal::to_value_type<ValueType>::get( index, this->BeginIterators );
   }
 
   VTKM_EXEC_EXPORT
   void Set(vtkm::Id index, ValueType value) const {
-    *(this->BeginIterators[0]+index) = value[0];
-    *(this->BeginIterators[1]+index) = value[1];
-    *(this->BeginIterators[2]+index) = value[2];
+    vtkm::exec::cuda::internal::to_value_type<ValueType>::set(index, value, this->BeginIterators );
   }
 
-  // VTKM_CONT_EXPORT
-  // IteratorType GetIteratorBegin() const { return this->BeginIterator.get(); }
-
-  // VTKM_CONT_EXPORT
-  // IteratorType GetIteratorEnd() const { return this->EndIterator.get(); }
-
 private:
-  vtkm::Vec<PointerType,3> BeginIterators;
-  vtkm::Vec<PointerType,3> EndIterators;
-
-  // VTKM_EXEC_EXPORT
-  // PointerType IteratorAt(vtkm::Id index) const {
-  //   // Not using std::advance because on CUDA it cannot be used on a device.
-  //   return (this->BeginIterator + index);
-  // }
+  vtkm::Vec<PointerType,NUM_COMPONENTS> BeginIterators;
+  vtkm::Id NumberOfValues;
 };
 
 template<typename T>
@@ -137,16 +151,20 @@ class ConstArrayPortalFromThrustTransposed : public ArrayPortalFromThrustBase
 public:
   typedef T ValueType;
   typedef typename T::ComponentType ComponentType;
+  static const vtkm::IdComponent NUM_COMPONENTS = ValueType::NUM_COMPONENTS;
+
   typedef typename thrust::system::cuda::pointer< const ComponentType > PointerType;
-  typedef const T* IteratorType;
+
+  //none pointer type so that we use the lookup functor based wrapper
+  typedef T IteratorType;
 
   VTKM_EXEC_CONT_EXPORT ConstArrayPortalFromThrustTransposed() {  }
 
   VTKM_CONT_EXPORT
-  ConstArrayPortalFromThrustTransposed(vtkm::Vec<PointerType,3> begin,
-                                       vtkm::Vec<PointerType,3> end)
+  ConstArrayPortalFromThrustTransposed(vtkm::Vec<PointerType,NUM_COMPONENTS> begin,
+                                       vtkm::Id length)
     : BeginIterators( begin ),
-      EndIterators( end )
+      NumberOfValues( length )
       {  }
 
   /// Copy constructor for any other ConstArrayPortalFromThrustTransposed with an iterator
@@ -157,7 +175,7 @@ public:
   VTKM_EXEC_CONT_EXPORT
   ConstArrayPortalFromThrustTransposed(const ConstArrayPortalFromThrustTransposed<OtherT> &src)
     : BeginIterators(src.BeginIterators),
-      EndIterators(src.EndIterators)
+      NumberOfValues(src.NumberOfValues)
   {  }
 
   template<typename OtherT>
@@ -166,47 +184,28 @@ public:
       const ConstArrayPortalFromThrustTransposed<OtherT> &src)
   {
     this->BeginIterators = src.BeginIterators;
-    this->EndIterators = src.EndIterators;
+    this->NumberOfValues = src.NumberOfValues;
     return *this;
   }
 
   VTKM_EXEC_CONT_EXPORT
   vtkm::Id GetNumberOfValues() const {
-    // Not using std::distance because on CUDA it cannot be used on a device.
-    return (this->EndIterators - this->BeginIterators);
+    return this->NumberOfValues;
   }
 
   VTKM_EXEC_EXPORT
   ValueType Get(vtkm::Id index) const {
-    return ValueType(
-              vtkm::exec::cuda::internal::load_through_texture< ComponentType >::get( (this->BeginIterators[0]+index) ),
-              vtkm::exec::cuda::internal::load_through_texture< ComponentType >::get( (this->BeginIterators[1]+index) ),
-              vtkm::exec::cuda::internal::load_through_texture< ComponentType >::get( (this->BeginIterators[2]+index) )
-              );
+    return vtkm::exec::cuda::internal::to_value_type<ValueType>::get( index, this->BeginIterators );
   }
 
   VTKM_EXEC_EXPORT
   void Set(vtkm::Id index, ValueType value) const {
-    *(this->BeginIterators[0] + index) = value[0];
-    *(this->BeginIterators[1] + index) = value[1];
-    *(this->BeginIterators[2] + index) = value[2];
+    vtkm::exec::cuda::internal::to_value_type<ValueType>::set( index, value, this->BeginIterators );
   }
 
-  // VTKM_CONT_EXPORT
-  // IteratorType GetIteratorBegin() const { return this->BeginIterators.get(); }
-
-  // VTKM_CONT_EXPORT
-  // IteratorType GetIteratorEnd() const { return this->EndIterators.get(); }
-
 private:
-  vtkm::Vec<PointerType,3> BeginIterators;
-  vtkm::Vec<PointerType,3> EndIterators;
-
-  // VTKM_EXEC_EXPORT
-  // PointerType IteratorAt(vtkm::Id index) const {
-  //   // Not using std::advance because on CUDA it cannot be used on a device.
-  //   return (this->BeginIterators + index);
-  // }
+  vtkm::Vec<PointerType,NUM_COMPONENTS> BeginIterators;
+  vtkm::Id NumberOfValues;
 };
 
 }
