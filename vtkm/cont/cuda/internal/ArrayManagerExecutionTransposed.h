@@ -121,18 +121,22 @@ public:
     try
       {
       const vtkm::Id length = arrayPortal.GetNumberOfValues();
+      const T* source = reinterpret_cast< const T* >(arrayPortal.GetRawIterator());
 
+      #pragma unroll
       for(int i=0; i < NumComponents; ++i)
         {
         this->Arrays[i].reserve( length );
 
+        //offset based on the position of the first element. e.g.
+        //for x,y,z we need to point to y0 not x0 for i==1
         cudaMemcpy2D(this->Arrays[i].data().get(),
-                   sizeof(T),
-                   arrayPortal.GetRawIterator(),
-                   NumComponents*sizeof(T),
-                   sizeof(T),
-                   length,
-                   cudaMemcpyHostToDevice);
+                     sizeof(T),
+                     source + i,
+                     NumComponents*sizeof(T),
+                     sizeof(T),
+                     length,
+                     cudaMemcpyHostToDevice);
         }
       }
     catch (std::bad_alloc error)
@@ -158,6 +162,7 @@ public:
   {
     try
       {
+      #pragma unroll
       for(int i=0; i < NumComponents; ++i)
         {
         this->Arrays[i].resize( numberOfValues );
@@ -179,15 +184,20 @@ public:
     const vtkm::Id length = this->Arrays[0].size();
     controlArray.Allocate(length);
 
+    T* dest = reinterpret_cast< T* >(controlArray.GetPortal().GetRawIterator());
+
+    #pragma unroll
     for(int i=0; i < NumComponents; ++i)
         {
-        cudaMemcpy2D(controlArray.GetPortal().GetRawIterator(),
-                 NumComponents*sizeof(T),
-                 this->Arrays[i].data().get(),
-                 sizeof(T),
-                 sizeof(T),
-                 length,
-                 cudaMemcpyDeviceToHost);
+        //offset based on the position of the first element. e.g.
+        //for x,y,z we need to point to y0 not x0 for i==1
+        cudaMemcpy2D(dest+i,
+                     NumComponents*sizeof(T),
+                     this->Arrays[i].data().get(),
+                     sizeof(T),
+                     sizeof(T),
+                     length,
+                     cudaMemcpyDeviceToHost);
         }
   }
 
@@ -199,6 +209,7 @@ public:
     // is still supposed to be a precondition to Shrink.
     VTKM_ASSERT_CONT(numberOfValues <= this->Arrays[0].size());
 
+    #pragma unroll
     for(int i=0; i < NumComponents; ++i)
       {
       this->Arrays[i].resize( numberOfValues );
@@ -208,21 +219,28 @@ public:
   VTKM_CONT_EXPORT PortalType GetPortal()
   {
     const std::size_t len = this->Arrays[0].size();
-    return PortalType( vtkm::make_Vec(this->Arrays[0].data(),
-                                      this->Arrays[1].data(),
-                                      this->Arrays[2].data() ),
-                       len
-                       );
+    vtkm::Vec< thrust::system::cuda::pointer< T >, NumComponents > v;
+
+    #pragma unroll
+    for(int i=0; i < NumComponents; ++i)
+      {
+      v[i] = this->Arrays[i].data();
+      }
+    return PortalType(v, len);
+
   }
 
   VTKM_CONT_EXPORT PortalConstType GetPortalConst() const
   {
     const std::size_t len = this->Arrays[0].size();
-    return PortalConstType( vtkm::make_Vec(this->Arrays[0].data(),
-                                           this->Arrays[1].data(),
-                                           this->Arrays[2].data() ),
-                            len
-                            );
+    vtkm::Vec< thrust::system::cuda::pointer< const T >, NumComponents > v;
+
+    #pragma unroll
+    for(int i=0; i < NumComponents; ++i)
+      {
+      v[i] = this->Arrays[i].data();
+      }
+    return PortalConstType( v, len);
   }
 
 
@@ -231,6 +249,7 @@ public:
   VTKM_CONT_EXPORT void ReleaseResources()
   {
 
+    #pragma unroll
     for(int i=0; i < NumComponents; ++i)
       {
       this->Arrays[i].clear();
