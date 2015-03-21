@@ -184,6 +184,37 @@ template<typename WorkletType,
          typename ParameterInterface,
          typename ControlInterface,
          vtkm::IdComponent InputDomainIndex,
+         typename P1>
+VTKM_EXEC_EXPORT
+void DoWorkletInvokeFunctor(
+      const WorkletType &worklet,
+      const vtkm::internal::Invocation<
+        ParameterInterface,
+        ControlInterface,
+        vtkm::internal::FunctionInterface<void(P1)>,
+        InputDomainIndex> &invocation,
+      vtkm::Id index,
+      vtkm::Id3 ijk)
+{
+  typedef vtkm::internal::Invocation<
+      ParameterInterface,
+      ControlInterface,
+      vtkm::internal::FunctionInterface<void(P1)>,
+      InputDomainIndex> Invocation;
+
+  typedef typename InvocationToFetch<Invocation,1>::type FetchType1;
+  FetchType1 fetch1;
+  typename FetchType1::ValueType p1 = fetch1.Load(index, invocation);
+
+  worklet(p1,ijk);
+
+  fetch1.Store(index, invocation, p1);
+}
+
+template<typename WorkletType,
+         typename ParameterInterface,
+         typename ControlInterface,
+         vtkm::IdComponent InputDomainIndex,
          typename R,
          typename P1,
          typename P2>
