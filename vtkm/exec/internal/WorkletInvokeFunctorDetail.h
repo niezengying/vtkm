@@ -117,6 +117,43 @@ template<typename WorkletType,
          typename ParameterInterface,
          typename ControlInterface,
          vtkm::IdComponent InputDomainIndex,
+         typename R,
+         typename P1>
+VTKM_EXEC_EXPORT
+void DoWorkletInvokeFunctor(
+      const WorkletType &worklet,
+      const vtkm::internal::Invocation<
+        ParameterInterface,
+        ControlInterface,
+        vtkm::internal::FunctionInterface<R(P1)>,
+        InputDomainIndex> &invocation,
+      vtkm::Id index,
+      vtkm::Id3 ijk)
+{
+  typedef vtkm::internal::Invocation<
+      ParameterInterface,
+      ControlInterface,
+      vtkm::internal::FunctionInterface<R(P1)>,
+      InputDomainIndex> Invocation;
+
+  typedef typename InvocationToFetch<Invocation,1>::type FetchType1;
+  FetchType1 fetch1;
+  typename FetchType1::ValueType p1 = fetch1.Load(index, invocation);
+
+  typedef typename InvocationToFetch<Invocation,0>::type ReturnFetchType;
+  typedef typename ReturnFetchType::ValueType ReturnValueType;
+  ReturnFetchType returnFetch;
+  ReturnValueType r = ReturnValueType(worklet(p1,ijk));
+
+  returnFetch.Store(index, invocation, r);
+
+  fetch1.Store(index, invocation, p1);
+}
+
+template<typename WorkletType,
+         typename ParameterInterface,
+         typename ControlInterface,
+         vtkm::IdComponent InputDomainIndex,
          typename P1>
 VTKM_EXEC_EXPORT
 void DoWorkletInvokeFunctor(
@@ -200,6 +237,43 @@ void DoWorkletInvokeFunctor(
         vtkm::internal::FunctionInterface<void(P1,P2)>,
         InputDomainIndex> &invocation,
       vtkm::Id index)
+{
+  typedef vtkm::internal::Invocation<
+      ParameterInterface,
+      ControlInterface,
+      vtkm::internal::FunctionInterface<void(P1,P2)>,
+      InputDomainIndex> Invocation;
+
+  typedef typename InvocationToFetch<Invocation,1>::type FetchType1;
+  FetchType1 fetch1;
+  typename FetchType1::ValueType p1 = fetch1.Load(index, invocation);
+
+  typedef typename InvocationToFetch<Invocation,2>::type FetchType2;
+  FetchType2 fetch2;
+  typename FetchType2::ValueType p2 = fetch2.Load(index, invocation);
+
+  worklet(p1,p2);
+
+  fetch1.Store(index, invocation, p1);
+  fetch2.Store(index, invocation, p2);
+}
+
+template<typename WorkletType,
+         typename ParameterInterface,
+         typename ControlInterface,
+         vtkm::IdComponent InputDomainIndex,
+         typename P1,
+         typename P2>
+VTKM_EXEC_EXPORT
+void DoWorkletInvokeFunctor(
+      const WorkletType &worklet,
+      const vtkm::internal::Invocation<
+        ParameterInterface,
+        ControlInterface,
+        vtkm::internal::FunctionInterface<void(P1,P2)>,
+        InputDomainIndex> &invocation,
+      vtkm::Id index,
+      vtkm::Id3 ijk)
 {
   typedef vtkm::internal::Invocation<
       ParameterInterface,
@@ -310,6 +384,50 @@ void DoWorkletInvokeFunctor(
   fetch2.Store(index, invocation, p2);
   fetch3.Store(index, invocation, p3);
 }
+
+template<typename WorkletType,
+         typename ParameterInterface,
+         typename ControlInterface,
+         vtkm::IdComponent InputDomainIndex,
+         typename P1,
+         typename P2,
+         typename P3>
+VTKM_EXEC_EXPORT
+void DoWorkletInvokeFunctor(
+      const WorkletType &worklet,
+      const vtkm::internal::Invocation<
+        ParameterInterface,
+        ControlInterface,
+        vtkm::internal::FunctionInterface<void(P1,P2,P3)>,
+        InputDomainIndex> &invocation,
+      vtkm::Id index,
+      vtkm::Id3 ijk)
+{
+  typedef vtkm::internal::Invocation<
+      ParameterInterface,
+      ControlInterface,
+      vtkm::internal::FunctionInterface<void(P1,P2,P3)>,
+      InputDomainIndex> Invocation;
+
+  typedef typename InvocationToFetch<Invocation,1>::type FetchType1;
+  FetchType1 fetch1;
+  typename FetchType1::ValueType p1 = fetch1.Load(index, invocation);
+
+  typedef typename InvocationToFetch<Invocation,2>::type FetchType2;
+  FetchType2 fetch2;
+  typename FetchType2::ValueType p2 = fetch2.Load(index, invocation);
+
+  typedef typename InvocationToFetch<Invocation,3>::type FetchType3;
+  FetchType3 fetch3;
+  typename FetchType3::ValueType p3 = fetch3.Load(index, invocation);
+
+  worklet(p1,p2,p3);
+
+  fetch1.Store(index, invocation, p1);
+  fetch2.Store(index, invocation, p2);
+  fetch3.Store(index, invocation, p3);
+}
+
 
 template<typename WorkletType,
          typename ParameterInterface,

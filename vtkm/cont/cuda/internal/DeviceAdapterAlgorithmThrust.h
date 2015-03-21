@@ -89,7 +89,7 @@ void Schedule3DIndexKernel(FunctorType functor, vtkm::Id3 size)
 
   //now convert back to flat memory
   const int idx = x + size[0]*(y + size[1]*z);
-  functor( idx );
+  functor( idx, vtkm::make_Vec(x,y,z) );
 }
 
 inline

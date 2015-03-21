@@ -55,6 +55,13 @@ public:
     detail::DoWorkletInvokeFunctor(this->Worklet, this->Invocation, index);
   }
 
+  VTKM_EXEC_EXPORT
+  void operator()(vtkm::Id index,
+                  vtkm::Id3 ijk) const
+  {
+    detail::DoWorkletInvokeFunctor(this->Worklet, this->Invocation, index, ijk);
+  }
+
 private:
   WorkletType Worklet;
   InvocationType Invocation;
