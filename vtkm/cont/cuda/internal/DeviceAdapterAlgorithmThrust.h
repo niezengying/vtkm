@@ -186,7 +186,7 @@ static void compare_3d_schedule_patterns(Functor functor, const vtkm::Id3& range
   cudaEventCreate(&stop);
 
   const vtkm::Id numInstances = rangeMax[0] * rangeMax[1] * rangeMax[2];
-  const int blockSize = 32;
+  const int blockSize = 128;
   const int blocksPerGrid = (numInstances + blockSize - 1) / blockSize;
 
   cudaEventRecord(start, 0);
@@ -603,7 +603,7 @@ public:
 
     functor.SetErrorMessageBuffer(errorMessage);
 
-    const int blockSize = 32;
+    const int blockSize = 128;
     const int blocksPerGrid = (numInstances + blockSize - 1) / blockSize;
 
     Schedule1DIndexKernel<Functor> <<<blocksPerGrid, blockSize>>> (functor, numInstances);
